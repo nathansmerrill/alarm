@@ -16,6 +16,29 @@ const int buzzer = 9;
 
 const int lightSwitch = 12;
 
+void error(String message) {
+  Serial.println("ERROR: " + message);
+  while (true) {
+    delay(1000);
+  }
+}
+
+int readThreePosition(int number) {
+  bool a = digitalRead(threePosition1A);
+  bool b = digitalRead(threePosition1B);
+  if (number == 2) {
+    a = digitalRead(threePosition2A);
+    b = digitalRead(threePosition2B);
+  }
+  if (b && !a) {
+    return 0;
+  } else if (a && b) {
+    return 1;
+  } else if (a && !b) {
+    return 2;
+  }
+  error("Three position switch broken");
+}
 
 void setup() {
   Serial.begin(9600);
@@ -40,4 +63,6 @@ void setup() {
 }
 
 void loop() {
+  Serial.println(readThreePosition(2));
+  delay(1000);
 }
