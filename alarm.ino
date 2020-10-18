@@ -19,12 +19,27 @@ const int momentary4 = 8;
 
 const int lightSwitch = 12;
 
-const int rtcInterrupt = 6;
+//const int rtcInterrupt = 6;
 
 const int buzzer = 9;
 
 const int dimmerZeroCrossing = 2;
 const int dimmer = 3;
+
+int alarm1Hour = 8;
+int alarm1Minute = 0;
+int alarm2Hour = 9;
+int alarm2Minute = 15;
+
+//int previousMinute;
+//int previousThreePosition1;
+//int previousThreePosition2;
+//boolean previousTwoPosition;
+//boolean previousLightSwitch;
+//boolean previousMomentary1;
+//boolean previousMomentary2;
+//boolean previousMomentary3;
+//boolean previousMomentary4;
 
 Adafruit_7segment matrix = Adafruit_7segment();
 RTC_DS3231 rtc;
@@ -57,8 +72,12 @@ int readThreePosition(int number) {
   error("Three position switch broken");
 }
 
-void onAlarm() {
-  Serial.println("ALARM FIRED");
+void onMinuteChange(DateTime now) {
+  
+}
+
+void onThreePosition1Change(int position) {
+  
 }
 
 void setup() {
@@ -80,19 +99,21 @@ void setup() {
   
   pinMode(lightSwitch, INPUT_PULLUP);
   
-  pinMode(rtcInterrupt, INPUT_PULLUP);
+//  pinMode(rtcInterrupt, INPUT_PULLUP);
 
   pinMode(buzzer, OUTPUT);
 
 //  pinMode(dimmerZeroCrossing, INPUT);
   pinMode(dimmer, OUTPUT);
 
+
   // Set up display
   matrix.begin(0x70);
   matrix.setBrightness(0);
-  matrix.print(1234);
+//  matrix.print(1234);
   matrix.drawColon(true);
   matrix.writeDisplay();
+
 
   // Set up RTC
   if (!rtc.begin()) {
@@ -101,23 +122,25 @@ void setup() {
   
   if (rtc.lostPower()) {
     Serial.println("RTC lost power, setting it now");
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Sets RTC to current system time
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)) + TimeSpan(10)); // Sets RTC to current system time
   }
-  
-  rtc.disable32K();
-  attachInterrupt(digitalPinToInterrupt(rtcInterrupt), onAlarm, FALLING);
-  rtc.clearAlarm(1);
-  rtc.clearAlarm(2);
-  rtc.writeSqwPinMode(DS3231_OFF);
-  rtc.disableAlarm(2);
-  rtc.setAlarm1(rtc.now() + TimeSpan(10), DS3231_A1_Second);
 }
 
 void loop(){
-  Serial.print(rtc.alarmFired(1));
-  if(rtc.alarmFired(1)) {
-        rtc.clearAlarm(1);
-        Serial.println("Alarm cleared");
+  DateTime now = rtc.now();
+
+  int minute = now.minute();
+  if (previousMinute != minute) {
+    previousMinute = minute;
+    Serial.println(minute);
+    onMinuteChange(now);
   }
-  delay(2000);
+
+  int threePosition1 = readThreePosition(1);
+  if (previousThreePosition1 != threePosition1) {
+    previousThreePosition1 = threePosition1;
+    Serial.println(threePosition1);
+    onThreePosition1Change(threePosition1);
+  }
+//  delay(1000);
 }
