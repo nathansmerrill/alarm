@@ -175,6 +175,9 @@ void onMomentary1Change(int position) {
     int threePosition1 = readThreePosition(1);
     if (threePosition1 == 1) {
       Serial.println("INCREASING TIME HOUR");
+      DateTime now = rtc.now();
+      rtc.adjust(now + TimeSpan(3600));
+      displayTime();
     } else if (threePosition1 == 2) {
       int threePosition2 = readThreePosition(2);
       if (threePosition2 == 1) {
@@ -195,6 +198,9 @@ void onMomentary2Change(int position) {
     int threePosition1 = readThreePosition(1);
     if (threePosition1 == 1) {
       Serial.println("DESCREASING TIME HOUR");
+      DateTime now = rtc.now();
+      rtc.adjust(now - TimeSpan(3600));
+      displayTime();
     } else if (threePosition1 == 2) {
       int threePosition2 = readThreePosition(2);
       if (threePosition2 == 1) {
@@ -215,6 +221,9 @@ void onMomentary3Change(int position) {
     int threePosition1 = readThreePosition(1);
     if (threePosition1 == 1) {
       Serial.println("INCREASING TIME MINUTE");
+      DateTime now = rtc.now();
+      rtc.adjust(now + TimeSpan(60));
+      displayTime();
     } else if (threePosition1 == 2) {
       int threePosition2 = readThreePosition(2);
       if (threePosition2 == 1) {
@@ -235,6 +244,9 @@ void onMomentary4Change(int position) {
     int threePosition1 = readThreePosition(1);
     if (threePosition1 == 1) {
       Serial.println("DECREASING TIME HOUR");
+      DateTime now = rtc.now();
+      rtc.adjust(now - TimeSpan(60));
+      displayTime();
     } else if (threePosition1 == 2) {
       int threePosition2 = readThreePosition(2);
       if (threePosition2 == 1) {
