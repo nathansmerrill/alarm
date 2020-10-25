@@ -4,6 +4,7 @@
 #include <Adafruit_GFX.h>
 #include "Adafruit_LEDBackpack.h"
 #include "RTClib.h"
+#include <RBDdimmer.h>
 
 const int threePosition1A = A0;
 const int threePosition1B = A1;
@@ -19,27 +20,16 @@ const int momentary4 = 8;
 
 const int lightSwitch = 12;
 
-//const int rtcInterrupt = 6;
-
 const int buzzer = 9;
 
-const int dimmerZeroCrossing = 2;
-const int dimmer = 3;
+const int dimmerPin = 3;
 
-int alarm1Hour = 8;
-int alarm1Minute = 0;
-int alarm2Hour = 9;
-int alarm2Minute = 15;
+const int relay = 13;
 
-//int previousMinute;
-//int previousThreePosition1;
-//int previousThreePosition2;
-//boolean previousTwoPosition;
-//boolean previousLightSwitch;
-//boolean previousMomentary1;
-//boolean previousMomentary2;
-//boolean previousMomentary3;
-//boolean previousMomentary4;
+int alarm1Time = 800;
+boolean alarm1PM = false;
+int alarm2Time = 915;
+boolean alarm2PM = false;
 
 Adafruit_7segment matrix = Adafruit_7segment();
 RTC_DS3231 rtc;
@@ -67,14 +57,10 @@ class Listener {
 };
 
 void error(String message) {
-  Serial.println("ERROR: " + message);
+  Serial.println("ERROR: " + message + " *******************************************************");
   while (true) {
     delay(1000);
   }
-}
-
-boolean fixPullUp(boolean val) {
-  return !val;
 }
 
 int readThreePosition(int number) {
@@ -94,31 +80,40 @@ int readThreePosition(int number) {
   error("Three position switch broken");
 }
 
-void displayWrite(int text) {
-  matrix.print(text);
-  matrix.drawColon(true);
-  matrix.writeDisplay();
+void displayWrite(int text, boolean lastPeriod = false) {
+  if (!digitalRead(twoPosition)) {
+    matrix.print(text);
+    matrix.drawColon(true);
+    Serial.print("aaa: ");  
+    int value = String(text).substring(String(text).length()-1, String(text).length()).toInt();
+    Serial.print("last digit: ");
+    Serial.println(value);
+    matrix.writeDigitNum(4, value, lastPeriod);
+    matrix.writeDisplay();
+  }
+
 }
 
 void displayTime() {
   DateTime now = rtc.now();
-  char out[5];
-  sprintf(out, "%.2d%.2d", now.hour(), now.minute());
-  displayWrite(atoi(out));
+  displayWrite(now.twelveHour() * 100 + now.minute(), now.isPM());
+//  char out[5];
+//  sprintf(out, "%.2d%.2d", now.hour(), now.minute());
+//  displayWrite(atoi(out));
 }
 
 void displayAlarm(int number) {
   Serial.print("DISPLAYING ALARM ");
   Serial.println(number);
-  int hour = alarm1Hour;
-  int minute = alarm1Minute;
-  if (number == 2) {
-    hour = alarm2Hour;
-    minute = alarm2Minute;
-  }
+//  int hour = alarm1Hour;
+//  int minute = alarm1Minute;
+//  if (number == 2) {
+//    hour = alarm2Hour;
+//    minute = alarm2Minute;
+//  }
 
-  Serial.print(hour);
-  Serial.println(minute);
+//  Serial.print(hour);
+//  Serial.println(minute);
   
 //  if (String(hour).length() == 1) {
 //    Serial.println("adding padding hour");
@@ -129,13 +124,24 @@ void displayAlarm(int number) {
 //    sprintf(minute, " %.1d", minute);
 //  }
 
-  Serial.print(hour);
-  Serial.println(minute);
+//  Serial.print(hour);
+//  Serial.println(minute);
 
-  char out[5];
-  sprintf(out, "%.2d%.2d", hour, minute);
-  Serial.println(out);
-  displayWrite(atoi(out));
+//  char out[5];
+//  sprintf(out, "%.2d%.2d", hour, minute);
+//  Serial.println(out);
+//  displayWrite(atoi(out));
+  if (number == 1) {
+    displayWrite(alarm1Time, alarm1PM);
+  } else if (number == 2) {
+    Serial.print("alarm2aaaaa: ");
+    Serial.print(alarm2Time);
+    Serial.print(" ");
+    Serial.println(alarm2PM);
+    displayWrite(alarm2Time, alarm2PM);
+  } else {
+    error("INVALID ALARM DISPLAY NUMBER");
+  }
 }
 
 void onMinuteChange(int minute) {
@@ -145,12 +151,15 @@ void onMinuteChange(int minute) {
 }
   
 void onThreePosition1Change(int position) {
-  DateTime now = rtc.now();
+  Serial.print("THREE POSITION 1 CHANGE: ");
+  Serial.println(position);
   if (position == 2) {
     int threePosition2 = readThreePosition(2);
     if (threePosition2 == 0) {
       displayWrite(8888);
     } else {
+      Serial.print("DISPLAYING ALARM: ");
+      Serial.println(threePosition2);
       displayAlarm(threePosition2);
     }
   } else {
@@ -159,6 +168,8 @@ void onThreePosition1Change(int position) {
 }
 
 void onThreePosition2Change(int position) {
+  Serial.print("THREE POSITION 2 CHANGE: ");
+  Serial.println(position);
 //  if (readThreePosition(1) == 2) {
 //    displayAlarm(position);
 //  }
@@ -167,99 +178,147 @@ void onThreePosition2Change(int position) {
 
 void onTwoPositionChange(int position) {
   Serial.println("TWO POSITION CHANGE");
+  if (position == 1) {
+    matrix.clear();
+    matrix.writeDisplay();
+  } else {
+    onThreePosition1Change(readThreePosition(1));
+  }
+}
+
+void onMomentaryChange(int number, int position) {
+  if (!position) {
+    int threePosition1 = readThreePosition(1);
+    if (threePosition1 == 1) { // Adjusting time
+      Serial.println("CHANGING TIME");
+      DateTime now = rtc.now();
+      if (number == 1) {
+        rtc.adjust(now + TimeSpan(3600));
+      } else if (number == 2) {
+        rtc.adjust(now - TimeSpan(3600));
+      } else if (number == 3) {
+        rtc.adjust(now + TimeSpan(60));
+      } else if (number == 4) {
+        rtc.adjust(now - TimeSpan(60));
+      } else {
+        error("INVALID MOMENTARY NUMBER");
+      }
+      displayTime();
+    } else if (threePosition1 == 2) { // Adjusting alarm
+      int threePosition2 = readThreePosition(2);
+      if (threePosition2 == 1) {
+        Serial.println("CHANGING ALARM 1");
+        Serial.println(alarm1Time);
+        Serial.println(alarm1PM);
+        int alarm1Minute = String(alarm1Time).substring(1, 3).toInt();
+        int alarm1Hour = String(alarm1Time).substring(0, 1).toInt();
+        if (String(alarm1Time).length() == 4) {
+          Serial.println("4 digit time");
+          alarm1Minute = String(alarm1Time).substring(2, 4).toInt();
+          alarm1Hour = String(alarm1Time).substring(0, 2).toInt();
+        }
+        Serial.print("Hour: ");
+        Serial.println(alarm1Hour);
+        Serial.print("Minute: ");
+        Serial.println(alarm1Minute);
+        if (number == 1) {
+          alarm1Time += 100;
+          if (alarm1Time >= 1259) {
+            alarm1Time -= 1200;
+          }
+          if (alarm1Hour == 11) {
+            alarm1PM = !alarm1PM;
+          }
+        } else if (number == 2) {
+          alarm1Time -= 100;
+          if (alarm1Time < 100) {
+            alarm1Time += 1200;
+          }
+          if (alarm1Hour == 12) {
+            alarm1PM = !alarm1PM;
+          }
+        } else if (number == 3) {
+          if (alarm1Minute == 59) {
+            alarm1Time -= 59;
+          } else {
+            alarm1Time += 1;
+          }
+        } else if (number == 4) {
+          if (alarm1Minute == 0) {
+            alarm1Time += 59;
+          } else {
+            alarm1Time -= 1;
+          }
+        } else {
+          error("INVALID MOMENTARY NUMBER");
+        }
+        displayAlarm(1);
+      } else if (threePosition2 == 2) {
+        Serial.println("CHANGING ALARM 2");
+//        Serial.println(alarm1Time);
+//        Serial.println(alarm1PM);
+        int alarm2Minute = String(alarm2Time).substring(1, 3).toInt();
+        int alarm2Hour = String(alarm2Time).substring(0, 1).toInt();
+        if (String(alarm2Time).length() == 4) {
+//          Serial.println("4 digit time");
+          alarm2Minute = String(alarm2Time).substring(2, 4).toInt();
+          alarm2Hour = String(alarm2Time).substring(0, 2).toInt();
+        }
+//        Serial.print("Hour: ");
+//        Serial.println(alarm1Hour);
+//        Serial.print("Minute: ");
+//        Serial.println(alarm1Minute);
+        if (number == 1) {
+          alarm2Time += 100;
+          if (alarm2Time >= 1259) {
+            alarm2Time -= 1200;
+          }
+          if (alarm2Hour == 11) {
+            alarm2PM = !alarm2PM;
+          }
+        } else if (number == 2) {
+          alarm2Time -= 100;
+          if (alarm2Time < 100) {
+            alarm2Time += 1200;
+          }
+          if (alarm2Hour == 12) {
+            alarm2PM = !alarm2PM;
+          }
+        } else if (number == 3) {
+          if (alarm2Minute == 59) {
+            alarm2Time -= 59;
+          } else {
+            alarm2Time += 1;
+          }
+        } else if (number == 4) {
+          if (alarm2Minute == 0) {
+            alarm2Time += 59;
+          } else {
+            alarm2Time -= 1;
+          }
+        } else {
+          error("INVALID MOMENTARY NUMBER");
+        }
+        displayAlarm(2);
+      }
+    }
+  }
 }
 
 void onMomentary1Change(int position) {
-//  Serial.println("Momentary 1 change");
-  if (!position) {
-    int threePosition1 = readThreePosition(1);
-    if (threePosition1 == 1) {
-      Serial.println("INCREASING TIME HOUR");
-      DateTime now = rtc.now();
-      rtc.adjust(now + TimeSpan(3600));
-      displayTime();
-    } else if (threePosition1 == 2) {
-      int threePosition2 = readThreePosition(2);
-      if (threePosition2 == 1) {
-        Serial.println("increasing alarm 1 hour");
-        alarm1Hour++;
-        displayAlarm(1);
-      } else if (threePosition2 == 2) {
-        Serial.println("increasing alarm 2 hour");
-        alarm2Hour++;
-        displayAlarm(2);
-      }
-    }
-  }
+  onMomentaryChange(1, position);
 }
 
 void onMomentary2Change(int position) {
-  if (!position) {
-    int threePosition1 = readThreePosition(1);
-    if (threePosition1 == 1) {
-      Serial.println("DESCREASING TIME HOUR");
-      DateTime now = rtc.now();
-      rtc.adjust(now - TimeSpan(3600));
-      displayTime();
-    } else if (threePosition1 == 2) {
-      int threePosition2 = readThreePosition(2);
-      if (threePosition2 == 1) {
-        Serial.println("descreasing alarm 1 hour");
-        alarm1Hour--;
-        displayAlarm(1);
-      } else if (threePosition2 == 2) {
-        Serial.println("descreasing alarm 2 hour");
-        alarm2Hour--;
-        displayAlarm(2);
-      }
-    }
-  }
+  onMomentaryChange(2, position);
 }
 
 void onMomentary3Change(int position) {
-  if (!position) {
-    int threePosition1 = readThreePosition(1);
-    if (threePosition1 == 1) {
-      Serial.println("INCREASING TIME MINUTE");
-      DateTime now = rtc.now();
-      rtc.adjust(now + TimeSpan(60));
-      displayTime();
-    } else if (threePosition1 == 2) {
-      int threePosition2 = readThreePosition(2);
-      if (threePosition2 == 1) {
-        Serial.println("increasing alarm 1 minute");
-        alarm1Minute++;
-        displayAlarm(1);
-      } else if (threePosition2 == 2) {
-        Serial.println("increasing alarm 2 minute");
-        alarm2Minute++;
-        displayAlarm(2);
-      }
-    }
-  }
+  onMomentaryChange(3, position);
 }
 
 void onMomentary4Change(int position) {
-  if (!position) {
-    int threePosition1 = readThreePosition(1);
-    if (threePosition1 == 1) {
-      Serial.println("DECREASING TIME HOUR");
-      DateTime now = rtc.now();
-      rtc.adjust(now - TimeSpan(60));
-      displayTime();
-    } else if (threePosition1 == 2) {
-      int threePosition2 = readThreePosition(2);
-      if (threePosition2 == 1) {
-        Serial.println("decreasing alarm 1 minute");
-        alarm1Minute--;
-        displayAlarm(1);
-      } else if (threePosition2 == 2) {
-        Serial.println("decreasing alarm 2 minute");
-        alarm2Minute--;
-        displayAlarm(2);
-      }
-    }
-  }
+  onMomentaryChange(4, position);
 }
 
 void onLightSwitchChange(int position) {
@@ -303,7 +362,7 @@ void setup() {
   pinMode(buzzer, OUTPUT);
 
 //  pinMode(dimmerZeroCrossing, INPUT);
-  pinMode(dimmer, OUTPUT);
+  pinMode(dimmerPin, OUTPUT);
 
   // Set up display
   matrix.begin(0x70);
