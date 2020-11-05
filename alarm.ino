@@ -6,51 +6,85 @@
 #include "RTClib.h"
 #include <RBDdimmer.h>
 
-const int threePosition1A = A0;
-const int threePosition1B = A1;
-const int threePosition2A = A2;
-const int threePosition2B = A3;
+const int threePosition1A = A1;
+const int threePosition1B = 4;
+const int threePosition2A = A0;
+const int threePosition2B = 5;
 
-const int twoPosition = 6;
+const int twoPosition = 7;
 
-const int momentary1 = 4;
-const int momentary2 = 5;
-const int momentary3 = 7;
+const int momentary1 = 12;
+const int momentary2 = 11;
+const int momentary3 = 9;
 const int momentary4 = 8;
 
-const int lightSwitch = 12;
+const int lightSwitch = 6;
 
-const int buzzer = 9;
+const int buzzer = 10;
 
 const int dimmerPin = 3;
 
 const int relay = 13;
+
+const int dimmerMin = 33;
+const int dimmerMax = 85;
+const int dimmerDuration = 300;
+
+const int repeatDelay = 500;
+const int repeatRate = 100;
 
 int alarm1Time = 800;
 boolean alarm1PM = false;
 int alarm2Time = 915;
 boolean alarm2PM = false;
 
+uint32_t alarmStart = NULL;
+
+boolean fuck = false;
+
 Adafruit_7segment matrix = Adafruit_7segment();
 RTC_DS3231 rtc;
+dimmerLamp dimmer(dimmerPin);
 
 class Listener {
   private:
     int (*getValue)();
     void (*onActivate)(int val);
+    boolean repeat;
+    
     int previousValue;
+    unsigned long pressTime = 0;
+    boolean pressedDown = false;
+    boolean repeating = false;
+    boolean lastRepeatTime = NULL;
+    
   public:
-    Listener(int (*getValueArg)(), void (*onActivateArg)(int val)) {
+    Listener(int (*getValueArg)(), void (*onActivateArg)(int val), boolean repeatArg = false) {
       getValue = getValueArg;
       onActivate = onActivateArg;
+      repeat = repeatArg;
     }
 
     void check() {
       int val = getValue();
       if (previousValue != val) {
         previousValue = val;
-        Serial.print("Value changed: ");
-        Serial.println(val);
+        pressTime = millis();
+//        Serial.print("Value changed: ");
+//        Serial.println(val);
+        if (val) {
+          pressedDown = false;
+        } else {
+          pressedDown = true;
+        }
+        lastRepeatTime = NULL;
+        repeating = false;
+        onActivate(val);
+      } else if (repeat && !repeating && pressedDown && millis() - pressTime >= repeatDelay) {
+        lastRepeatTime = millis();
+        onActivate(val);
+      } else if (lastRepeatTime != NULL && millis() - lastRepeatTime >= repeatRate) {
+        lastRepeatTime = millis();
         onActivate(val);
       }
     }
@@ -80,6 +114,33 @@ int readThreePosition(int number) {
   error("Three position switch broken");
 }
 
+int timeToInt() {
+  DateTime now = rtc.now();
+  return now.twelveHour() * 100 + now.minute();
+}
+
+//int convertDimmerValue(int input) {
+//  return map(input, 0, 100, dimmerMin, dimmerMax);
+//}
+
+int getDimmerVal() {
+  if (alarmStart == NULL) {
+    return NULL;
+  }
+  if (!fuck) {
+    fuck = true;
+    Serial.print("current duration: ");
+    Serial.println(rtc.now().unixtime() - alarmStart);
+    Serial.print("current unixtime: ");
+    Serial.println(rtc.now().unixtime());
+    Serial.print("alarmstart: ");
+    Serial.println(alarmStart);
+    Serial.print("thing should be 5: ");
+    Serial.println(dimmerDuration / (dimmerMax - dimmerMin));
+  }
+  return (rtc.now().unixtime() - alarmStart) / (dimmerDuration / (dimmerMax - dimmerMin));
+}
+
 void displayWrite(int text, boolean lastPeriod = false) {
   if (!digitalRead(twoPosition)) {
     matrix.print(text);
@@ -96,48 +157,13 @@ void displayWrite(int text, boolean lastPeriod = false) {
 
 void displayTime() {
   DateTime now = rtc.now();
-  displayWrite(now.twelveHour() * 100 + now.minute(), now.isPM());
-//  char out[5];
-//  sprintf(out, "%.2d%.2d", now.hour(), now.minute());
-//  displayWrite(atoi(out));
+  displayWrite(timeToInt(), now.isPM());
 }
 
 void displayAlarm(int number) {
-  Serial.print("DISPLAYING ALARM ");
-  Serial.println(number);
-//  int hour = alarm1Hour;
-//  int minute = alarm1Minute;
-//  if (number == 2) {
-//    hour = alarm2Hour;
-//    minute = alarm2Minute;
-//  }
-
-//  Serial.print(hour);
-//  Serial.println(minute);
-  
-//  if (String(hour).length() == 1) {
-//    Serial.println("adding padding hour");
-//    sprintf(hour, "0%.1d", hour);
-//  }
-//  if (String(minute).length() == 1) {
-//    Serial.println("adding padding minute");
-//    sprintf(minute, " %.1d", minute);
-//  }
-
-//  Serial.print(hour);
-//  Serial.println(minute);
-
-//  char out[5];
-//  sprintf(out, "%.2d%.2d", hour, minute);
-//  Serial.println(out);
-//  displayWrite(atoi(out));
   if (number == 1) {
     displayWrite(alarm1Time, alarm1PM);
   } else if (number == 2) {
-    Serial.print("alarm2aaaaa: ");
-    Serial.print(alarm2Time);
-    Serial.print(" ");
-    Serial.println(alarm2PM);
     displayWrite(alarm2Time, alarm2PM);
   } else {
     error("INVALID ALARM DISPLAY NUMBER");
@@ -145,14 +171,37 @@ void displayAlarm(int number) {
 }
 
 void onMinuteChange(int minute) {
-  if (readThreePosition(1) == 0) {
+  if (readThreePosition(1) != 2) {
     displayTime();
+  }
+  
+  int alarm = readThreePosition(2);
+  DateTime now = rtc.now();
+
+  if (readThreePosition(1) == 0 &&
+      digitalRead(lightSwitch) &&
+      (alarm == 1 && alarm1Time == timeToInt() && alarm1PM == now.isPM()) ||
+      (alarm == 2 && alarm2Time == timeToInt() && alarm2PM == now.isPM())) {
+    Serial.println("ALARM ACTIVATING NOWWWWWW");
+    Serial.println(now.unixtime());
+    alarmStart = now.unixtime();
+    dimmer.setPower(dimmerMin);
+    digitalWrite(relay, true);
+  }
+}
+
+void onDimChange(int dimmerVal) {
+  dimmerVal += dimmerMin;
+  Serial.print("dimmingval: ");
+  Serial.println(dimmerVal);
+  if (dimmerVal <= dimmerMax) {
+    Serial.print("actually setting dimmer: ");
+    Serial.println(dimmerVal);
+    dimmer.setPower(dimmerVal);
   }
 }
   
 void onThreePosition1Change(int position) {
-  Serial.print("THREE POSITION 1 CHANGE: ");
-  Serial.println(position);
   if (position == 2) {
     int threePosition2 = readThreePosition(2);
     if (threePosition2 == 0) {
@@ -168,11 +217,6 @@ void onThreePosition1Change(int position) {
 }
 
 void onThreePosition2Change(int position) {
-  Serial.print("THREE POSITION 2 CHANGE: ");
-  Serial.println(position);
-//  if (readThreePosition(1) == 2) {
-//    displayAlarm(position);
-//  }
   onThreePosition1Change(readThreePosition(1));
 }
 
@@ -203,6 +247,7 @@ void onMomentaryChange(int number, int position) {
       } else {
         error("INVALID MOMENTARY NUMBER");
       }
+      rtc.adjust(rtc.now() - TimeSpan(now.second()));
       displayTime();
     } else if (threePosition1 == 2) { // Adjusting alarm
       int threePosition2 = readThreePosition(2);
@@ -323,18 +368,26 @@ void onMomentary4Change(int position) {
 
 void onLightSwitchChange(int position) {
   Serial.println("LIGHT SWITCH CHANGE");
+  if (position == 0 && alarmStart != NULL) {
+    Serial.println("DISABLING ALARM");
+    alarmStart = NULL;
+    digitalWrite(relay, false);
+    dimmer.setPower(dimmerMin);
+    analogWrite(buzzer, 0);
+  }
 }
 
 //Listener minuteListener([rtc]() -> int {return rtc.now().minute();}, onMinuteChange);
 Listener listeners[] = {
   Listener([]() -> int {return rtc.now().minute();}, onMinuteChange),
+  Listener(getDimmerVal, onDimChange),
   Listener([]() -> int {return readThreePosition(1);}, onThreePosition1Change),
   Listener([]() -> int {return readThreePosition(2);}, onThreePosition2Change),
   Listener([]() -> int {return digitalRead(twoPosition);}, onTwoPositionChange),
-  Listener([]() -> int {return digitalRead(momentary1);}, onMomentary1Change),
-  Listener([]() -> int {return digitalRead(momentary2);}, onMomentary2Change),
-  Listener([]() -> int {return digitalRead(momentary3);}, onMomentary3Change),
-  Listener([]() -> int {return digitalRead(momentary4);}, onMomentary4Change),
+  Listener([]() -> int {return digitalRead(momentary1);}, onMomentary1Change, true),
+  Listener([]() -> int {return digitalRead(momentary2);}, onMomentary2Change, true),
+  Listener([]() -> int {return digitalRead(momentary3);}, onMomentary3Change, true),
+  Listener([]() -> int {return digitalRead(momentary4);}, onMomentary4Change, true),
   Listener([]() -> int {return digitalRead(lightSwitch);}, onLightSwitchChange),
 };
 
@@ -356,13 +409,12 @@ void setup() {
   pinMode(momentary4, INPUT_PULLUP);
   
   pinMode(lightSwitch, INPUT_PULLUP);
-  
-//  pinMode(rtcInterrupt, INPUT_PULLUP);
 
   pinMode(buzzer, OUTPUT);
-
-//  pinMode(dimmerZeroCrossing, INPUT);
+  
   pinMode(dimmerPin, OUTPUT);
+
+  pinMode(relay, OUTPUT);
 
   // Set up display
   matrix.begin(0x70);
@@ -370,7 +422,7 @@ void setup() {
 //  matrix.print(1234);
 //  matrix.drawColon(true);
   matrix.writeDisplay();
-
+  
 
   // Set up RTC
   if (!rtc.begin()) {
@@ -381,11 +433,21 @@ void setup() {
     Serial.println("RTC lost power, setting it now");
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)) + TimeSpan(10)); // Sets RTC to current system time
   }
+
+  // Set up dimmer
+  dimmer.begin(NORMAL_MODE, ON);
 }
 
 void loop(){
 //  minuteListener.check();
   for (int i = 0; i < (sizeof(listeners)/sizeof(listeners[0])); i++) {
     listeners[i].check();
+  }
+  if ((getDimmerVal() + dimmerMin) >= dimmerMax + (dimmerMax - dimmerMin)) {
+    if (((millis()/500) % 2) == 0) {
+      analogWrite(buzzer, 255);
+    } else {
+      analogWrite(buzzer, 0);
+    }
   }
 }
