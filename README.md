@@ -1,2 +1,2 @@
 # Dimmer Alarm
-A light dimming alarm based on a arduino nano
+A dimming alarm clock built into the wall
